@@ -4,6 +4,7 @@ import path from "node:path";
 /**
  * Get the path to an app specific config directory based on operating system
  * standards.
+ *
  * @param projectName - The name of the project for which the config directory
  * is being created.
  */

@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 /**
  * Get the path to the nearest app root directory, determined by the presence of
  * a `package.json` file.
+ *
  * @param dirPath - The directory to start searching from. Defaults to the
  * current working directory.
  */

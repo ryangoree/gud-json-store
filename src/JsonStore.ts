@@ -1,6 +1,13 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod/v4";
+import { getProjectRoot } from "./utils/getProjectRoot";
 import type { OptionalValueKey } from "./utils/types";
 
 /**
@@ -10,54 +17,64 @@ export type JsonFileOptions<T extends z.ZodObject> = {
   /**
    * The name to use for the file. The name will be appended with `.json`
    * if it doesn't already end with it.
-   * @default 'store.json'
+   *
+   * @default "store.json"
    */
   name?: string;
 
   /**
-   * The path where the json will be saved; *excluding the filename*. Default
+   * The path where the json will be saved, *excluding the filename*. Default
    * to the project root, determined by the presence of a `package.json` file.
+   *
+   * @default
+   * getProjectRoot()
+   *
+   * @see {@linkcode getProjectRoot}
    */
-  path: string;
+  path?: string;
 
   /**
-   * A [Zod](https://zod.dev) schema to validate the json against.
+   * A [Zod](https://zod.dev) schema to validate the data against.
    */
   schema?: T;
 } & ({} extends z.infer<T> ? DefaultsOption<T> : Required<DefaultsOption<T>>);
 
 type DefaultsOption<T extends z.ZodObject> = {
   /**
-   * The default values the json will be created with and will reset to
+   * The default values the data will be created with and will reset to.
    */
   defaults?: z.infer<T>;
 };
 
 /**
- * A JSON file for persisting json data.
+ * A simple store for persisting JSON data in a file.
+ *
+ * Data is always read directly from the file to ensure it is up-to-date.
  */
 export class JsonStore<T extends z.ZodObject> {
   /**
-   * The path to the json file *including the filename*.
+   * The path to the file, *including the filename*.
    */
   readonly path: string;
 
   /**
-   * The default values the json will be created with and will reset to.
+   * The default values the file will be created with and will reset to.
    */
   readonly defaults: JsonFileOptions<T>["defaults"];
 
   /**
-   * The schema to validate the json against.
+   * The schema used to validate the data.
    */
   readonly schema: T;
 
-  constructor({
-    name = "store.json",
-    path,
-    defaults = {} as z.infer<T>,
-    schema = z.object({}).loose() as T,
-  }: JsonFileOptions<T>) {
+  constructor(
+    {
+      name = "store.json",
+      path = getProjectRoot(),
+      defaults = {} as z.infer<T>,
+      schema = z.object({}).loose() as T,
+    } = {} as JsonFileOptions<T>,
+  ) {
     if (!name.endsWith(".json")) name += ".json";
     this.path = resolve(process.cwd(), path, name);
     this.schema = schema;
@@ -65,7 +82,7 @@ export class JsonStore<T extends z.ZodObject> {
   }
 
   /**
-   * Read the json file and get the values as an object.
+   * Read the file and get the values as an object.
    */
   read(): z.infer<T> {
     type Data = z.infer<T>;
@@ -74,8 +91,7 @@ export class JsonStore<T extends z.ZodObject> {
     try {
       json = readFileSync(this.path, "utf8");
     } catch (_) {
-      this.reset();
-      return this.defaults as Data;
+      return this.reset() as Data;
     }
 
     try {
@@ -83,25 +99,26 @@ export class JsonStore<T extends z.ZodObject> {
     } catch (_) {
       const backupPath = `${this.path}.bak`;
       writeFileSync(backupPath, json);
-      this.reset();
+      const data = this.reset();
       console.error(
         `Failed to parse json from ${this.path}. The file has been backed up at ${backupPath} and a new json file has been created with the default values.`,
       );
-      return this.defaults as Data;
+      return data as Data;
     }
   }
 
   /**
-   * Delete the json file.
+   * Delete the file.
    */
   rm(): void {
-    try {
+    if (existsSync(this.path)) {
       rmSync(this.path);
-    } catch (_) {}
+    }
   }
 
   /**
-   * Set the value for a key or multiple keys in the json.
+   * Set the value for a key or multiple keys.
+   *
    * @param key - The key to set or an object of key-value pairs to set.
    * @param value - The value to set the key to if `key` is not an object.
    */
@@ -112,10 +129,9 @@ export class JsonStore<T extends z.ZodObject> {
     value?: z.infer<T>[K],
   ): void {
     const data = this.read();
-
-    if (typeof keyOrValues !== "object" && value) {
+    if (typeof keyOrValues !== "object") {
       validateSerializable(keyOrValues.toString(), value);
-      data[keyOrValues] = value;
+      data[keyOrValues] = value as z.infer<T>[K];
     } else {
       for (const [key, value] of Object.entries(keyOrValues)) {
         validateSerializable(key as string, value);
@@ -126,81 +142,74 @@ export class JsonStore<T extends z.ZodObject> {
   }
 
   /**
-   * Get a value from the json by key.
+   * Get a value or multiple values by key(s).
+   *
    * @param key - The key to get the value for.
-   * @returns The value of `store[key]`.
+   * @param restKeys - Additional keys to get values for.
+   * @returns The value for the key, or an object with the values for all keys
+   * if multiple keys are provided.
    */
   get<K extends keyof z.infer<T>>(key: K): z.infer<T>[K];
   get<K extends keyof z.infer<T>>(...keys: K[]): Pick<z.infer<T>, K>;
   get<K extends keyof z.infer<T>>(key: K, ...restKeys: K[]) {
     const data = this.read();
-    return restKeys.length === 0
-      ? data[key]
-      : Object.fromEntries([
-          [key, data[key]],
-          ...Object.entries(data).filter(([k]) => restKeys.includes(k as any)),
-        ]);
+    if (!restKeys.length) return data[key];
+    const selected = {
+      [key]: data[key],
+    } as Pick<z.infer<T>, K>;
+    for (const key of restKeys) {
+      selected[key] = data[key];
+    }
+    return selected;
   }
 
   /**
-   * Check to see if the json contains all given keys.
+   * Check to see if the store contains all given keys.
+   *
    * @param keys - The keys to look for.
-   * @returns True if all keys exists, false otherwise.
+   * @returns True if all keys are present, false otherwise.
    */
   has<T extends string>(...keys: T[]): boolean {
     const data = this.read();
-
-    let hasAllKeys = true;
-
-    for (const key of keys) {
-      if (!(key in data)) {
-        hasAllKeys = false;
-      }
-    }
-
-    return hasAllKeys;
+    return keys.every((key) => key in data);
   }
 
   /**
-   * Delete entries in the json by their keys.
+   * Delete entries by their keys.
+   *
    * @param keys - The keys of the entries to delete.
-   * @returns True if all entries were deleted, false otherwise.
    */
-  delete(...keys: OptionalValueKey<z.infer<T>>[]): boolean {
+  delete(...keys: OptionalValueKey<z.infer<T>>[]): void {
     const data = this.read();
-
+    const newData = {} as z.infer<T>;
     let didDeleteSome = false;
-    let didDeleteAll = true;
-
-    for (const key of keys) {
-      if ((key as string) in data) {
-        delete data[key];
-        didDeleteSome = true;
+    for (const _key of Object.keys(data)) {
+      const key = _key as OptionalValueKey<z.infer<T>>;
+      if (!keys.includes(key)) {
+        newData[key] = data[key];
       } else {
-        didDeleteAll = false;
+        didDeleteSome = true;
       }
     }
-
     if (didDeleteSome) {
-      this.#save(data);
+      this.#save(newData);
     }
-
-    return didDeleteAll;
   }
 
   /**
-   * Reset json to defaults.
+   * Reset the file to defaults.
    */
   reset() {
-    this.#save(this.defaults as z.infer<T>);
+    this.#save(this.defaults || ({} as z.infer<T>));
     return this.defaults;
   }
 
   /**
    * Throw an error if the data doesn't match the schema.
+   *
    * @param data - The data to validate against the schema.
    */
-  #parse(data: unknown): z.infer<T> | undefined {
+  #parse(data: unknown): z.infer<T> {
     const parsed = this.schema.safeParse(data);
     if (parsed.error) {
       throw new Error(
@@ -212,14 +221,13 @@ export class JsonStore<T extends z.ZodObject> {
 
   /**
    * Save the data as json.
+   *
    * @param data - The json data.
    */
   #save(data: z.infer<T>) {
-    data = this.#parse(data) as z.infer<T>;
-    const json = JSON.stringify(data, null, 2);
-
+    const parsed = this.#parse(data);
+    const json = JSON.stringify(parsed, null, 2);
     mkdirSync(dirname(this.path), { recursive: true });
-
     writeFileSync(this.path, json, {
       encoding: "utf8",
       flag: "w",
@@ -235,9 +243,10 @@ const invalidTypes = ["undefined", "function", "symbol", "bigint"];
  * @param value - The value to validate
  */
 function validateSerializable(key: string, value: unknown) {
-  if (value === null || invalidTypes.includes(typeof value)) {
+  if (invalidTypes.includes(typeof value)) {
     throw new TypeError(
       `Failed to set value of type \`${typeof value}\` for key \`${key}\`. Values must be JSON serializable.`,
     );
   }
+  return true;
 }
