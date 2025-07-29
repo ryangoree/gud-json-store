@@ -6,14 +6,17 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { z } from "zod/v4";
+import z from "zod";
 import { getProjectRoot } from "./utils/getProjectRoot";
 import type { OptionalValueKey } from "./utils/types";
 
 /**
  * Options for the  creating a new {@linkcode JsonStore} instance.
  */
-export type JsonFileOptions<T extends z.ZodObject> = {
+export type JsonFileOptions<
+  TSchema extends z.ZodObject,
+  TData extends z.infer<TSchema> = z.infer<TSchema>,
+> = {
   /**
    * The name to use for the file. The name will be appended with `.json`
    * if it doesn't already end with it.
@@ -36,66 +39,64 @@ export type JsonFileOptions<T extends z.ZodObject> = {
   /**
    * A [Zod](https://zod.dev) schema to validate the data against.
    */
-  schema?: T;
-} & ({} extends z.infer<T> ? DefaultsOption<T> : Required<DefaultsOption<T>>);
+  schema?: TSchema;
+} & ({} extends TData
+  ? DefaultsOption<TData>
+  : Required<DefaultsOption<TData>>);
 
-type DefaultsOption<T extends z.ZodObject> = {
+type DefaultsOption<T extends Record<string, unknown>> = {
   /**
    * The default values the data will be created with and will reset to.
    */
-  defaults?: z.infer<T>;
+  defaults?: T;
 };
 
 /**
  * A simple store for persisting JSON data in a file.
  *
- * Data is always read directly from the file to ensure it is up-to-date.
+ * Data is always read directly from the file to ensure it's up-to-date.
  */
-export class JsonStore<T extends z.ZodObject> {
+export class JsonStore<
+  TSchema extends z.ZodObject = z.ZodObject,
+  TData extends z.infer<TSchema> = z.infer<TSchema>,
+> {
   /**
    * The path to the file, *including the filename*.
    */
   readonly path: string;
 
   /**
-   * The default values the file will be created with and will reset to.
-   */
-  readonly defaults: JsonFileOptions<T>["defaults"];
-
-  /**
    * The schema used to validate the data.
    */
-  readonly schema: T;
+  readonly schema: TSchema;
+
+  /**
+   * The default values the file will be created with and will reset to.
+   */
+  readonly defaults: TData;
 
   constructor(
     {
       name = "store.json",
       path = getProjectRoot(),
-      defaults = {} as z.infer<T>,
-      schema = z.object({}).loose() as T,
-    } = {} as JsonFileOptions<T>,
+      schema = z.object({}).loose() as TSchema,
+      defaults = {} as TData,
+    } = {} as JsonFileOptions<TSchema, TData>,
   ) {
     if (!name.endsWith(".json")) name += ".json";
     this.path = resolve(process.cwd(), path, name);
     this.schema = schema;
-    this.defaults = defaults;
+    this.defaults = schema.parse(defaults) as TData;
   }
 
   /**
    * Read the file and get the values as an object.
    */
-  read(): z.infer<T> {
-    type Data = z.infer<T>;
-    let json: string;
-
+  read(): z.infer<TSchema> {
+    if (!existsSync(this.path)) return this.reset();
+    const json = readFileSync(this.path, "utf8");
     try {
-      json = readFileSync(this.path, "utf8");
-    } catch (_) {
-      return this.reset() as Data;
-    }
-
-    try {
-      return this.#parse(JSON.parse(json)) as Data;
+      return this.#parse(JSON.parse(json)) as z.infer<TSchema>;
     } catch (_) {
       const backupPath = `${this.path}.bak`;
       writeFileSync(backupPath, json);
@@ -103,7 +104,7 @@ export class JsonStore<T extends z.ZodObject> {
       console.error(
         `Failed to parse json from ${this.path}. The file has been backed up at ${backupPath} and a new json file has been created with the default values.`,
       );
-      return data as Data;
+      return data;
     }
   }
 
@@ -122,16 +123,19 @@ export class JsonStore<T extends z.ZodObject> {
    * @param key - The key to set or an object of key-value pairs to set.
    * @param value - The value to set the key to if `key` is not an object.
    */
-  set(values: Partial<z.infer<T>>): void;
-  set<K extends keyof z.infer<T>>(key: K, value: z.infer<T>[K]): void;
-  set<K extends keyof z.infer<T>>(
-    keyOrValues: K | Partial<z.infer<T>>,
-    value?: z.infer<T>[K],
+  set(values: Partial<z.infer<TSchema>>): void;
+  set<K extends keyof z.infer<TSchema>>(
+    key: K,
+    value: z.infer<TSchema>[K],
+  ): void;
+  set<K extends keyof z.infer<TSchema>>(
+    keyOrValues: K | Partial<z.infer<TSchema>>,
+    value?: z.infer<TSchema>[K],
   ): void {
     const data = this.read();
     if (typeof keyOrValues !== "object") {
       validateSerializable(keyOrValues.toString(), value);
-      data[keyOrValues] = value as z.infer<T>[K];
+      data[keyOrValues] = value as z.infer<TSchema>[K];
     } else {
       for (const [key, value] of Object.entries(keyOrValues)) {
         validateSerializable(key as string, value);
@@ -149,14 +153,16 @@ export class JsonStore<T extends z.ZodObject> {
    * @returns The value for the key, or an object with the values for all keys
    * if multiple keys are provided.
    */
-  get<K extends keyof z.infer<T>>(key: K): z.infer<T>[K];
-  get<K extends keyof z.infer<T>>(...keys: K[]): Pick<z.infer<T>, K>;
-  get<K extends keyof z.infer<T>>(key: K, ...restKeys: K[]) {
+  get<K extends keyof z.infer<TSchema>>(key: K): z.infer<TSchema>[K];
+  get<K extends keyof z.infer<TSchema>>(
+    ...keys: K[]
+  ): Pick<z.infer<TSchema>, K>;
+  get<K extends keyof z.infer<TSchema>>(key: K, ...restKeys: K[]) {
     const data = this.read();
     if (!restKeys.length) return data[key];
     const selected = {
       [key]: data[key],
-    } as Pick<z.infer<T>, K>;
+    } as Pick<z.infer<TSchema>, K>;
     for (const key of restKeys) {
       selected[key] = data[key];
     }
@@ -179,12 +185,12 @@ export class JsonStore<T extends z.ZodObject> {
    *
    * @param keys - The keys of the entries to delete.
    */
-  delete(...keys: OptionalValueKey<z.infer<T>>[]): void {
+  delete(...keys: OptionalValueKey<z.infer<TSchema>>[]): void {
     const data = this.read();
-    const newData = {} as z.infer<T>;
+    const newData = {} as z.infer<TSchema>;
     let didDeleteSome = false;
     for (const _key of Object.keys(data)) {
-      const key = _key as OptionalValueKey<z.infer<T>>;
+      const key = _key as OptionalValueKey<z.infer<TSchema>>;
       if (!keys.includes(key)) {
         newData[key] = data[key];
       } else {
@@ -199,9 +205,11 @@ export class JsonStore<T extends z.ZodObject> {
   /**
    * Reset the file to defaults.
    */
-  reset() {
-    this.#save(this.defaults || ({} as z.infer<T>));
-    return this.defaults;
+  reset(): z.infer<TSchema> {
+    const data = { ...(this.defaults || ({} as z.infer<TSchema>)) };
+    console.log(`Resetting to defaults:`, this);
+    this.#save(data);
+    return data;
   }
 
   /**
@@ -209,7 +217,7 @@ export class JsonStore<T extends z.ZodObject> {
    *
    * @param data - The data to validate against the schema.
    */
-  #parse(data: unknown): z.infer<T> {
+  #parse(data: unknown): z.infer<TSchema> {
     const parsed = this.schema.safeParse(data);
     if (parsed.error) {
       throw new Error(
@@ -224,7 +232,7 @@ export class JsonStore<T extends z.ZodObject> {
    *
    * @param data - The json data.
    */
-  #save(data: z.infer<T>) {
+  #save(data: z.infer<TSchema>) {
     const parsed = this.#parse(data);
     const json = JSON.stringify(parsed, null, 2);
     mkdirSync(dirname(this.path), { recursive: true });

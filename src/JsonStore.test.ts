@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { z } from "zod";
+import z from "zod";
 import { JsonStore } from "./JsonStore.js";
 import { getProjectRoot } from "./utils/getProjectRoot.js";
 
