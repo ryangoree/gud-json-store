@@ -6,6 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import z from "zod";
 import { getProjectRoot } from "./utils/getProjectRoot";
 import type { OptionalValueKey } from "./utils/types";
@@ -97,12 +98,12 @@ export class JsonStore<
     const json = readFileSync(this.path, "utf8");
     try {
       return this.#parse(JSON.parse(json)) as z.infer<TSchema>;
-    } catch (_) {
+    } catch {
       const backupPath = `${this.path}.bak`;
       writeFileSync(backupPath, json);
       const data = this.reset();
       console.error(
-        `Failed to parse json from ${this.path}. The file has been backed up at ${backupPath} and a new json file has been created with the default values.`,
+        `Failed to parse json from "${pathToFileURL(this.path)}". The file has been backed up at "${pathToFileURL(backupPath)}" and a new json file has been created with the default values.`,
       );
       return data;
     }
@@ -207,7 +208,6 @@ export class JsonStore<
    */
   reset(): z.infer<TSchema> {
     const data = { ...(this.defaults || ({} as z.infer<TSchema>)) };
-    console.log(`Resetting to defaults:`, this);
     this.#save(data);
     return data;
   }

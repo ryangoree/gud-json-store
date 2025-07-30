@@ -22,6 +22,7 @@
   "scripts": {
     "build": "tsup",
     "test": "tsx --test src/*.test.ts",
+    "test:watch": "tsx --test --watch src/*.test.ts",
     "format": "biome format --write",
     "lint": "biome lint --diagnostic-level error .",
     "lint:fix": "npm run lint --fix",
