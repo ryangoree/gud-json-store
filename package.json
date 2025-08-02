@@ -4,20 +4,24 @@
   "description": "A TypeScript-first JSON key-value store with Zod schema validation.",
   "license": "Apache-2.0",
   "author": "Ryan Goree (https://github.com/ryangoree)",
-  "repository": "https://github.com/ryangoree/gud-json-store",
-  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryangoree/gud-json-store.git"
+  },
   "type": "module",
-  "main": "dist/index.cjs",
+  "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      },
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     },
     "./package.json": "./package.json"
-  },
-  "peerDependencies": {
-    "zod": "^3.0.0 || ^4.0.0"
   },
   "scripts": {
     "build": "tsup",
@@ -30,6 +34,9 @@
     "typecheck": "tsc --noEmit",
     "release": "npm run build && changeset publish"
   },
+  "peerDependencies": {
+    "zod": "^3 || ^4"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.1.2",
     "@changesets/cli": "^2.29.5",
@@ -39,14 +46,9 @@
     "typescript": "^5.8.3",
     "zod": "^4.0.10"
   },
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "typesVersions": {
-    "*": {
-      ".": [
-        "./dist/index.d.ts"
-      ]
-    }
-  },
   "files": [
     "dist"
   ],
