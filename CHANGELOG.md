@@ -1,5 +1,11 @@
 # @gud/json-store
 
+## 0.0.2
+
+### Patch Changes
+
+- bf589f9: Patched package.json config.
+
 ## 0.0.1
 
 ### Patch Changes
