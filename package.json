@@ -1,6 +1,6 @@
 {
   "name": "@gud/json-store",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A TypeScript-first JSON key-value store with Zod schema validation.",
   "license": "Apache-2.0",
   "author": "Ryan Goree (https://github.com/ryangoree)",
